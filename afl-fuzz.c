@@ -90,6 +90,7 @@
 /* Lots of globals, but mostly for the status UI and other things where it
    really makes no sense to haul them around as function parameters. */
 
+uint64_t counter = 0;
 
 EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
           *out_file,                  /* File to fuzz, if any             */
@@ -3167,13 +3168,41 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   s32 fd;
   u8  keeping = 0, res;
 
+  counter++;
+
+
+  if(crash_mode == FAULT_CRASH && getenv("AFL_SAVE_NON_CRASHING") && fault == FAULT_NONE) {
+      if(has_new_bits(virgin_bits)) {
+          fn = alloc_printf("%s/crashes/id:%06llu,%s_%ld_NO_CRASH", out_dir, unique_crashes, describe_op(0), counter);
+      } else {
+          fn = alloc_printf("%s/crashes/id:%06llu,%s_%ld_NO_CRASH_DIFF", out_dir, unique_crashes, describe_op(0), counter);
+      }
+      fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+      if (fd > 0) {
+          ck_write(fd, mem, len, fn);
+          close(fd);
+          ck_free(fn);
+      }
+  }
+
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 
     if (!(hnb = has_new_bits(virgin_bits))) {
-      if (crash_mode) total_crashes++;
+      if (crash_mode) {
+          total_crashes++;
+          if (getenv("AFL_SAVE_NONE_CRASHING")) {
+              fn = alloc_printf("%s/crashes/id:%06llu,%s_%ld", out_dir, unique_crashes, describe_op(0), counter);
+              fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+              if (fd > 0) {
+                  ck_write(fd, mem, len, fn);
+                  close(fd);
+                  ck_free(fn);
+              }
+          }
+      }
       return 0;
     }    
 
@@ -3188,6 +3217,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
+    fn = alloc_printf("%s/crashes/id:%06llu,%s_%ld_DIFF", out_dir, unique_crashes, describe_op(0), counter);
     add_to_queue(fn, len, 0);
 
     if (hnb == 2) {
